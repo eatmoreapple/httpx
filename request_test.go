@@ -84,7 +84,7 @@ func TestRequestBuilder_Json(t *testing.T) {
 
 func TestRequestBuilder_PostForm(t *testing.T) {
 	builder := httpx.New("http://localhost")
-	builder.PostFrom(url.Values{"key": []string{"value"}})
+	builder.PostForm(url.Values{"key": []string{"value"}})
 
 	req, err := builder.Build()
 	require.NoError(t, err)
