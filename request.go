@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"mime/multipart"
 	"net/http"
 	urlpkg "net/url"
 	"strings"
@@ -140,58 +139,6 @@ func (r *RequestBuilder) PostForm(values urlpkg.Values) *RequestBuilder {
 	r.SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	body := strings.NewReader(values.Encode())
 	return r.Body(io.NopCloser(body))
-}
-
-// MultipartForm sets the body of the request to a multipart form.
-func (r *RequestBuilder) MultipartForm(form *multipart.Form) *RequestBuilder {
-	if r.err != nil {
-		return r
-	}
-	var body = bytes.NewBuffer(nil)
-
-	writer := multipart.NewWriter(body)
-	defer func() { _ = writer.Close() }()
-
-	if form.Value != nil {
-		for key, values := range form.Value {
-			for _, value := range values {
-				if err := writer.WriteField(key, value); err != nil {
-					r.err = err
-					return r
-				}
-			}
-		}
-	}
-	if form.File != nil {
-		for key, files := range form.File {
-			for _, file := range files {
-				w, err := writer.CreateFormFile(key, file.Filename)
-				if err != nil {
-					r.err = err
-					return r
-				}
-				f, err := file.Open()
-				if err != nil {
-					r.err = err
-					return r
-				}
-				if _, err = io.Copy(w, f); err != nil {
-					r.err = err
-					_ = f.Close()
-					return r
-				}
-				_ = f.Close()
-			}
-		}
-	}
-	contentType := writer.FormDataContentType()
-	if err := writer.Close(); err != nil {
-		r.err = err
-		return r
-	}
-	r.SetHeader("Content-Type", contentType)
-	r.Body(io.NopCloser(body))
-	return r
 }
 
 func (r *RequestBuilder) Retry(retryTimes uint) *RequestBuilder {
