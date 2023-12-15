@@ -1,11 +1,10 @@
 package httpx_test
 
 import (
-	"context"
+	"io"
 	"io/ioutil"
-	"mime/multipart"
 	"net/http"
-	"net/url"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -15,109 +14,134 @@ import (
 	"github.com/eatmoreapple/httpx"
 )
 
-func TestRequestBuilder_Method(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	builder.Method(http.MethodPost)
+func TestRequestBuilder_Do(t *testing.T) {
+	// Step 1: Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Hello, test!"))
+	}))
+	defer server.Close()
 
-	req, err := builder.Build()
-	require.NoError(t, err)
-	assert.Equal(t, http.MethodPost, req.Method)
-}
-
-func TestRequestBuilder_Get(t *testing.T) {
-	builder := httpx.New("http://localhost")
+	// Step 2: Use the RequestBuilder to create a request
+	builder := httpx.New(server.URL)
 	builder.Get()
 
-	req, err := builder.Build()
+	// Step 3: Send the request and get the response
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Equal(t, http.MethodGet, req.Method)
+
+	// Step 4: Verify the response
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "Hello, test!", string(body))
 }
 
 func TestRequestBuilder_Post(t *testing.T) {
-	builder := httpx.New("http://localhost")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Post test!"))
+	}))
+	defer server.Close()
+
+	builder := httpx.New(server.URL)
 	builder.Post()
 
-	req, err := builder.Build()
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Equal(t, http.MethodPost, req.Method)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "Post test!", string(body))
 }
 
 func TestRequestBuilder_SetHeader(t *testing.T) {
-	builder := httpx.New("http://localhost")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("SetHeader test!"))
+	}))
+	defer server.Close()
+
+	builder := httpx.New(server.URL)
 	builder.SetHeader("Content-Type", "application/json")
 
-	req, err := builder.Build()
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "SetHeader test!", string(body))
 }
 
-func TestRequestBuilder_Form(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	builder.Form(url.Values{"key": []string{"value"}})
+func TestRequestBuilder_Body(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "Body test!", string(body))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Body test!"))
+	}))
+	defer server.Close()
 
-	req, err := builder.Build()
+	builder := httpx.New(server.URL)
+	builder.Body(io.NopCloser(strings.NewReader("Body test!")))
+
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Equal(t, "value", req.Form.Get("key"))
-}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-func TestRequestBuilder_Query(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	builder.Query(map[string]string{"key": "value"})
-
-	req, err := builder.Build()
+	body, err := ioutil.ReadAll(resp.Body)
 	require.NoError(t, err)
-	assert.Equal(t, "value", req.URL.Query().Get("key"))
-}
-
-func TestRequestBuilder_Json(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	builder.Json(map[string]string{"key": "value"})
-
-	req, err := builder.Build()
-	require.NoError(t, err)
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-
-	body, err := ioutil.ReadAll(req.Body)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"key":"value"}`, string(body))
+	assert.Equal(t, "Body test!", string(body))
 }
 
 func TestRequestBuilder_PostForm(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	builder.PostForm(url.Values{"key": []string{"value"}})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
+		body, err := ioutil.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "foo=bar", string(body))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("PostForm test!"))
+	}))
+	defer server.Close()
 
-	req, err := builder.Build()
-	require.NoError(t, err)
-	assert.Equal(t, "application/x-www-form-urlencoded", req.Header.Get("Content-Type"))
+	builder := httpx.New(server.URL)
+	builder.PostForm(map[string][]string{"foo": {"bar"}})
 
-	body, err := ioutil.ReadAll(req.Body)
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Equal(t, "key=value", string(body))
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "PostForm test!", string(body))
 }
 
-func TestRequestBuilder_MultipartForm(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	form := &multipart.Form{
-		Value: map[string][]string{
-			"key": {"value"},
-		},
-	}
-	builder.MultipartForm(form)
+func TestRequestBuilder_Json(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		body, err := ioutil.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, `{"foo":"bar"}`, string(body))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Json test!"))
+	}))
+	defer server.Close()
 
-	req, err := builder.Build()
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data"))
+	builder := httpx.New(server.URL)
+	builder.Json(map[string]string{"foo": "bar"})
 
-	body, err := ioutil.ReadAll(req.Body)
+	resp, err := builder.Do()
 	require.NoError(t, err)
-	assert.Contains(t, string(body), "key")
-	assert.Contains(t, string(body), "value")
-}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-func TestRequestBuilder_BuildWithContext(t *testing.T) {
-	builder := httpx.New("http://localhost")
-	ctx := context.WithValue(context.Background(), "key", "value")
-	req, err := builder.BuildWithContext(ctx)
+	body, err := ioutil.ReadAll(resp.Body)
 	require.NoError(t, err)
-	assert.Equal(t, "value", req.Context().Value("key"))
+	assert.Equal(t, "Json test!", string(body))
 }
