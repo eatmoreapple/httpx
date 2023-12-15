@@ -21,9 +21,10 @@ func New(url string) *RequestBuilder {
 // RequestBuilder is a builder for http.Request.
 // It provides methods to set up the request.
 type RequestBuilder struct {
-	req    *http.Request
-	err    error
-	client *http.Client
+	retryTimes uint
+	err        error
+	req        *http.Request
+	client     *http.Client
 }
 
 // Err returns the error that occurred while building the request.
@@ -193,6 +194,11 @@ func (r *RequestBuilder) MultipartForm(form *multipart.Form) *RequestBuilder {
 	return r
 }
 
+func (r *RequestBuilder) Retry(retryTimes uint) *RequestBuilder {
+	r.retryTimes = retryTimes
+	return r
+}
+
 // BuildWithContext builds the request with the provided context.
 func (r *RequestBuilder) BuildWithContext(ctx context.Context) (*http.Request, error) {
 	if r.err != nil {
@@ -210,14 +216,27 @@ func (r *RequestBuilder) Build() (*http.Request, error) {
 }
 
 // Do send the request and returns the response.
-func (r *RequestBuilder) Do() (*http.Response, error) {
+func (r *RequestBuilder) Do() (resp *http.Response, err error) {
 	req, err := r.Build()
 	if err != nil {
 		return nil, err
 	}
+
 	var client = r.client
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return client.Do(req)
+
+	retryTimes := r.retryTimes
+	if retryTimes == 0 {
+		retryTimes = 1
+	}
+
+	for i := 0; i < int(retryTimes); i++ {
+		resp, err = client.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+	}
+	return nil, err
 }
