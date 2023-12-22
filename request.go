@@ -74,6 +74,9 @@ func (r *RequestBuilder) Trace() *RequestBuilder { return r.Method(http.MethodTr
 
 // Body sets the body for the request.
 func (r *RequestBuilder) Body(body io.ReadCloser) *RequestBuilder {
+	if r.err != nil {
+		return r
+	}
 	r.req.Body = body
 	return r
 }
