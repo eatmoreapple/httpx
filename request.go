@@ -78,6 +78,47 @@ func (r *RequestBuilder) Body(body io.ReadCloser) *RequestBuilder {
 		return r
 	}
 	r.req.Body = body
+	switch v := body.(io.Reader).(type) {
+	case *bytes.Buffer:
+		r.req.ContentLength = int64(v.Len())
+		buf := v.Bytes()
+		r.req.GetBody = func() (io.ReadCloser, error) {
+			r := bytes.NewReader(buf)
+			return io.NopCloser(r), nil
+		}
+	case *bytes.Reader:
+		r.req.ContentLength = int64(v.Len())
+		snapshot := *v
+		r.req.GetBody = func() (io.ReadCloser, error) {
+			r := snapshot
+			return io.NopCloser(&r), nil
+		}
+	case *strings.Reader:
+		r.req.ContentLength = int64(v.Len())
+		snapshot := *v
+		r.req.GetBody = func() (io.ReadCloser, error) {
+			r := snapshot
+			return io.NopCloser(&r), nil
+		}
+	default:
+		// This is where we'd set it to -1 (at least
+		// if body != NoBody) to mean unknown, but
+		// that broke people during the Go 1.8 testing
+		// period. People depend on it being 0 I
+		// guess. Maybe retry later. See Issue 18117.
+	}
+	// For client requests, Request.ContentLength of 0
+	// means either actually 0, or unknown. The only way
+	// to explicitly say that the ContentLength is zero is
+	// to set the Body to nil. But turns out too much code
+	// depends on NewRequest returning a non-nil Body,
+	// so we use a well-known ReadCloser variable instead
+	// and have the http package also treat that sentinel
+	// variable to mean explicitly zero.
+	if r.req.GetBody != nil && r.req.ContentLength == 0 {
+		r.req.Body = http.NoBody
+		r.req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+	}
 	return r
 }
 
